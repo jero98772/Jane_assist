@@ -173,7 +173,7 @@ def configMenu():
 		else:
 			pass
 	writetxt(filename,configurations)
-#def configJane(option):
+
 def banner():
 	print("""
      _                                 Virtual
@@ -189,7 +189,7 @@ def main():
 	configurations = loadConfigurations()
 	speak("Hi "+configurations[0]+",I am "+configurations[1]+", how can I help?")
 	while True:
-    		time.sleep(0.5)
+    		time.sleep(0.1)
     		data = recordAudio()
     		jane(configurations[1],data)
 if __name__ == "__main__":

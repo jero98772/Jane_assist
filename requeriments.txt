@@ -1,0 +1,4 @@
+gtts
+PyAudio
+SpeechRecognition
+pygame
