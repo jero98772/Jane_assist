@@ -1,196 +1,182 @@
-#!/usr/bin/python
-# Requires PyAudio and PySpeech.
-# Requires a contacts.txt file with each line containing a name and phone number seperated by a space
+#!/usr/bin/env python3
+# Requires PyAudio and SpeechRecognition
+# Requires a contacts.txt file with each line containing a name and phone number separated by a space
+
 import speech_recognition as sr
 import time
 import os
-from gtts import gTTS
+import subprocess
 import webbrowser
-def readtxt(name):
-	content = []
-	with open(name+".txt", 'r') as file:
-		for i in file.readlines():
-			content.append(str(i).replace("\n",""))	
-	return content	
-def writetxt(name,content):
-	with open(name+".txt", 'w') as file:
-		for i in content:
-			file.write(i+"\n")
-		file.close()
-def loadConfigurations():
-	filename = "config"
-	fristconfigurations= ["tim","jane"]
-	try:
-		configurations = readtxt(filename)
-		vale = configurations
-	except:	
-		writetxt(filename,fristconfigurations)
-		vale = fristconfigurations
-	return vale
-def speak(audioString):
-    print(audioString)
-    tts = gTTS(text=audioString, lang='en')
-    tts.save("audio.mp3")
-    os.system("mpg123 audio.mp3")
+from gtts import gTTS
 
-def recordAudio():
-    # Record Audio
-    r = sr.Recognizer()
+CONFIG_FILE = "config.txt"
+CONTACTS_FILE = "contacts.txt"
+AUDIO_FILE = "audio.mp3"
+
+def read_file(name):
+    try:
+        with open(name, 'r') as file:
+            return [line.strip() for line in file.readlines()]
+    except FileNotFoundError:
+        return []
+
+def write_file(name, content):
+    with open(name + ".txt", 'w') as file:
+        for line in content:
+            file.write(line + "\n")
+
+def load_configurations():
+    default_config = ["Tim", "Jane"]
+    config = read_file(CONFIG_FILE)
+    if not config:
+        write_file(CONFIG_FILE, default_config)
+        return default_config
+    return config
+
+def speak(text):
+    print(f"Assistant: {text}")
+    tts = gTTS(text=text, lang='en')
+    tts.save(AUDIO_FILE)
+    subprocess.run(["mpg123", AUDIO_FILE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    os.remove(AUDIO_FILE)  # Clean up temporary audio file
+
+def record_audio():
+    recognizer = sr.Recognizer()
     with sr.Microphone() as source:
-        print("Say something!")
-        audio = r.listen(source)
-    
-        # Speech recognition using Google Speech Recognition
-        data = ""
+        print("Listening...")
         try:
-            # Uses the default API key
-            # To use another API key: `r.recognize_google(audio, key="GOOGLE_SPEECH_RECOGNITION_API_KEY")`
-            data = r.recognize_google(audio)
-            print("You said: " + data)
+            audio = recognizer.listen(source, timeout=5)
+            text = recognizer.recognize_google(audio).lower()
+            print(f"You said: {text}")
+            return text
         except sr.UnknownValueError:
-            print("Google Speech Recognition could not understand audio")
-            speak("I couldn't understand you")
-        except sr.RequestError as e:
-            print("Could not request results from Google Speech Recognition service; {0}".format(e))
-        data = data.lower()
-        return data
-    
-def sendSMS():
-    numbers = []
-    names = []
-    my_file = "contacts.txt"
-        # open file in read mode
-    with open(my_file, 'r') as file_handle:
-            # convert file contents into a list
-        lines = file_handle.read().splitlines()
-        for i, val in enumerate(lines): 
-            #split each line and appends name and number to respective list                
-            person = val.split(" ", 1)
-            names.append(person[0])
-            numbers.append(person[1])
-            print(i, names[i], numbers[i])
-            if(i + 1 >= len(lines)):
-                break
-    speak("Select acontact by number: ")
-    data = recordAudio()        
-    i = data
-    i = int(i)
-    dest = numbers[i]
-    speak("Record your message")
-    data = recordAudio()
-    message = data
-    speak("Would you like to send " + message + " to " + names[i] + "?")
-    data = recordAudio()
-    if "yes" in data:
-        os.system("kdeconnect-cli --send-sms '%s' -n s20 --destination %s"  % (message, dest))
-        speak("Message sent to " + names[i])
+            speak("I couldn't understand you.")
+        except sr.RequestError:
+            speak("Error connecting to the speech recognition service.")
+        except sr.WaitTimeoutError:
+            speak("I didn't hear anything.")
+    return ""
 
-def jane(name,data):
-    name = str(name)+" "
-    if name+"how are you" in data:
-        speak("I am fine, thanks")
-    if name+"see you later" in data or "bye "+name in data or name+"bye" in data:
+def send_sms():
+    try:
+        with open(CONTACTS_FILE, 'r') as file:
+            contacts = [line.strip().split(" ", 1) for line in file.readlines()]
+    except FileNotFoundError:
+        speak("Contacts file not found.")
+        return
+
+    if not contacts:
+        speak("No contacts available.")
+        return
+
+    for index, (name, number) in enumerate(contacts):
+        print(f"{index}: {name} - {number}")
+
+    speak("Select a contact by number.")
+    try:
+        contact_index = int(record_audio())
+        if 0 <= contact_index < len(contacts):
+            recipient = contacts[contact_index][1]
+            speak("Record your message.")
+            message = record_audio()
+            speak(f"Would you like to send '{message}' to {contacts[contact_index][0]}?")
+            confirmation = record_audio()
+            if "yes" in confirmation:
+                subprocess.run(["kdeconnect-cli", "--send-sms", message, "-n", "s20", "--destination", recipient])
+                speak("Message sent.")
+        else:
+            speak("Invalid selection.")
+    except ValueError:
+        speak("Invalid input.")
+
+def assistant(name, command):
+    if f"{name} how are you" in command:
+        print("how are you?")
+        speak("I am fine, thanks.")
+    elif any(phrase in command for phrase in [f"{name} see you later", f"bye {name}", f"{name} bye","bye"]):
+        print("exit")
         exit()
-    if name+"what time is it" in data:
-        print(time.ctime())
+    elif f"{name} what time is it" in command:
         speak(time.ctime())
+    elif f"{name} where is" in command:
+        location = command.split(" ", 2)[-1]
+        speak(f"Hold on, I will show you where {location} is.")
+        webbrowser.open_new_tab(f"https://www.google.com/maps/place/{location}")
+    elif f"{name}search for" in command:
+        search_query = command.split(" ", 2)[-1]
+        speak(f"Searching for {search_query}.")
+        webbrowser.open_new_tab(f"http://www.google.com/search?q={search_query}")
+    elif f"{name} start" in command:
+        program = command.split(" ", 1)[-1].lower()
+        speak(f"Starting {program}")
+        subprocess.Popen(program, shell=True)
+    elif f"{name} signal" in command:
+        subprocess.Popen("signal-desktop", shell=True)
+    elif f"hey {name}" in command:
+        speak("Hey, what's up?")
+    elif f"{name} send text" in command:
+        send_sms()
+    elif f"{name} open instagram" in command:
+        subprocess.Popen("instagram", shell=True)
+    elif "configuration" in command:
+        config_menu()
 
-    if name+"where is" in data:
-        data = data.split(" ", 2)
-        location = data[2]
-        speak("Hold on Tim, I will show you where " + location + " is.")
-        webbrowser.open_new_tab("https://www.google.com/maps/place/" + location + "/&amp;")
-        
-    if name+"search for" in data:
-        data = data.split(" ", 2)
-        search = data[2]
-        speak("Hold on Tim, I will search for " + search)
-        webbrowser.open_new_tab('http://www.google.com/search?btnG=1&q=' + search)
-        
-    if name+"start" in data:
-        data = data.split(" ", 1)
-        start = data[1]
-        start = start.lower()
-        speak("Starting " + start)
-        os.system(start + "&")
-        
-    if name+"signal" in data:
-        os.system("signal-desktop &")
-        
-    if "hey "+name in data:
-        speak("Hey Tim, what's up?")
-        
-    if name+"send text" in data:
-        sendSMS()
-        
-    if name+"open Instagram" in data:
-        instagram = 'istekram'
-        os.system(istekram + "&")
-    if name+"configuration" in data:
-        configMenu()
-    else:
-        pass	
-def configMenu():
-	i = 0
-	optionsAvibles= """
-	1) change your username
-	2) what do you want to call me
-	3) going back
-	"""
-	filename = "config"
-	attempts = 3
-	speak(optionsAvibles)
-	configurations = loadConfigurations()
-	tmpConfigurations = configurations	
-	while i < attempts:
-		option = recordAudio()
-		if option == "change your username" or "1":
-			speak("how is you new username?")
-			configurations[0] = recordAudio()
-			speak("ok ,"+configurations[0]+" is right?"+"""
-			1) yes			
-			""")
-			verification = recordAudio()
-			if verification == "yes" or verification == "1":
-				speak("ok ,"+configurations[0]+" Nice to meet you again ")
-				break
-			else:
-				pass
-		elif option == "what do you want to call me" or "2":
-			speak("how you want to call me?")
-			speak("ok ,"+configurations[1]+" is right?"+"""
-			1) yes
+def config_menu():
+    options = """
+    1) Change your username
+    2) What do you want to call me?
+    3) Go back
+    """
+    speak(options)
 
-			""")
-			configurations[1] = recordAudio()
-			if verification == "yes" or verification == "1":
-				speak(configurations[1]+" ? i like that name ")
-				break
-		elif option == "going back" or "3":
-			speak("as you wish it could be another time")
-			configurations = tmpConfigurations 
-			break
-		else:
-			pass
-	writetxt(filename,configurations)
+    config = load_configurations()
+    while True:
+        choice = record_audio()
+        if choice in ["1", "change your username"]:
+            speak("What is your new username?")
+            new_name = record_audio()
+            if new_name:
+                speak(f"Confirm: {new_name}? Say 'yes' to confirm.")
+                if "yes" in record_audio():
+                    config[0] = new_name
+                    speak(f"Nice to meet you again, {new_name}.")
+                    break
+        elif choice in ["2", "what do you want to call me"]:
+            speak("What do you want to call me?")
+            new_assistant_name = record_audio()
+            if new_assistant_name:
+                speak(f"Confirm: {new_assistant_name}? Say 'yes' to confirm.")
+                if "yes" in record_audio():
+                    config[1] = new_assistant_name
+                    speak(f"I like that name, {new_assistant_name}.")
+                    break
+        elif choice in ["3", "go back"]:
+            speak("Returning to main menu.")
+            break
+        else:
+            speak("Invalid choice. Try again.")
+
+    write_file(CONFIG_FILE, config)
 
 def banner():
-	print("""
+    print("""
      _                                 Virtual
     | | __ _ _ __   ___   _ __  _   _  Assistant
  _  | |/ _` | '_ \ / _ \ | '_ \| | | |
 | |_| | (_| | | | |  __/_| |_) | |_| |
  \___/ \__,_|_| |_|\___(_) .__/ \__, |
                          |_|    |___/ 
-	""")
-# initialization
+    """)
+
 def main():
-	banner()
-	configurations = loadConfigurations()
-	speak("Hi "+configurations[0]+",I am "+configurations[1]+", how can I help?")
-	while True:
-    		time.sleep(0.1)
-    		data = recordAudio()
-    		jane(configurations[1],data)
+    banner()
+    config = load_configurations()
+    speak(f"Hi {config[0]}, I am {config[1]}. How can I help?")
+    while True:
+        command = record_audio()
+        print(command)
+        if command:
+            assistant(config[1], command)
+        print(command)
 if __name__ == "__main__":
-	main()
+    main()
